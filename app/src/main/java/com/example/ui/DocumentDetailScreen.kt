@@ -151,6 +151,15 @@ fun DocumentDetailScreen(
         }
     }
 
+    // Document/File picker launcher for adding PDF documents or files
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            viewModel.onFilesImported(uris, targetDocumentId = documentId)
+        }
+    }
+
     val document = docWithPages?.document
     val pages = docWithPages?.pages?.sortedBy { it.pageIndex } ?: emptyList()
 
@@ -494,6 +503,14 @@ fun DocumentDetailScreen(
                                         photoPickerLauncher.launch(
                                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                         )
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Import PDF / Documents") },
+                                    leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) },
+                                    onClick = {
+                                        showAddMenu = false
+                                        documentPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
                                     }
                                 )
                             }

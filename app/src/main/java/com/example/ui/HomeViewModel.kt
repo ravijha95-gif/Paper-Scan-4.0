@@ -161,22 +161,25 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Import multiple images from Android Photo Picker.
+     * Import multiple files or documents (PDFs, images) from device storage or system pickers.
+     * Supports multi-page PDFs, JPEGs, PNGs, etc.
      */
-    fun onPhotosImported(uris: List<Uri>, targetDocumentId: Long? = null) {
+    fun onFilesImported(uris: List<Uri>, targetDocumentId: Long? = null) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
             _isLoading.value = true
             val context = getApplication<Application>()
             val paths = mutableListOf<String>()
 
-            for ((idx, uri) in uris.withIndex()) {
-                val bmp = DocumentProcessor.loadBitmapFromUri(context, uri)
-                if (bmp != null) {
-                    val filename = "import_${System.currentTimeMillis()}_$idx.jpg"
-                    val path = DocumentProcessor.saveBitmapToFile(context, bmp, filename, quality = 98)
-                    paths.add(path)
-                    bmp.recycle()
+            withContext(Dispatchers.IO) {
+                for ((fileIdx, uri) in uris.withIndex()) {
+                    val bitmaps = DocumentProcessor.loadBitmapsFromUri(context, uri)
+                    for ((pageIdx, bmp) in bitmaps.withIndex()) {
+                        val filename = "import_${System.currentTimeMillis()}_${fileIdx}_$pageIdx.jpg"
+                        val path = DocumentProcessor.saveBitmapToFile(context, bmp, filename, quality = 98)
+                        paths.add(path)
+                        bmp.recycle()
+                    }
                 }
             }
 
@@ -189,8 +192,18 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     targetDocumentId = targetDocumentId,
                     isBatchRemaining = _batchQueue.value.isNotEmpty()
                 )
+                _statusMessage.value = "Imported ${paths.size} page(s) successfully"
+            } else {
+                _statusMessage.value = "Unable to read the selected file(s). Please choose valid images or PDF documents."
             }
         }
+    }
+
+    /**
+     * Import multiple images from Android Photo Picker (delegates to unified onFilesImported).
+     */
+    fun onPhotosImported(uris: List<Uri>, targetDocumentId: Long? = null) {
+        onFilesImported(uris, targetDocumentId)
     }
 
     /**

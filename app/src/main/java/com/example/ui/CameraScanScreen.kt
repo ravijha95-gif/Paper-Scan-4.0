@@ -73,6 +73,7 @@ import androidx.compose.material.icons.filled.FlashAuto
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -317,6 +318,15 @@ fun CameraScanScreen(
     ) { uris ->
         if (uris.isNotEmpty()) {
             viewModel.onPhotosImported(uris, targetDocumentId)
+        }
+    }
+
+    // Document/File picker from within camera
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            viewModel.onFilesImported(uris, targetDocumentId)
         }
     }
 
@@ -725,24 +735,46 @@ fun CameraScanScreen(
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Gallery import
-                IconButton(
-                    onClick = {
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
-                    modifier = Modifier
-                        .size(52.dp)
-                        .background(Color.White.copy(alpha = 0.2f), CircleShape)
-                        .testTag("camera_gallery_button")
+                // Import Buttons (Gallery + PDF/Documents)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.Default.PhotoLibrary,
-                        contentDescription = "Import from Gallery",
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
+                    IconButton(
+                        onClick = {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .background(Color.White.copy(alpha = 0.2f), CircleShape)
+                            .testTag("camera_gallery_button")
+                    ) {
+                        Icon(
+                            Icons.Default.PhotoLibrary,
+                            contentDescription = "Import from Gallery",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {
+                            documentPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
+                        },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .background(Color.White.copy(alpha = 0.2f), CircleShape)
+                            .testTag("camera_document_button")
+                    ) {
+                        Icon(
+                            Icons.Default.PictureAsPdf,
+                            contentDescription = "Import PDF or Document",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                 }
 
                 // Shutter Capture Button (Full-Resolution Still Capture Pipeline)

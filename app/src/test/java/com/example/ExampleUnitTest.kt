@@ -164,4 +164,25 @@ class ExampleUnitTest {
         assertEquals(800, aligned.height)
         aligned.recycle()
     }
+
+    @Test
+    fun testLoadBitmapsFromUriWithImageFile() {
+        kotlinx.coroutines.runBlocking {
+            val context = org.robolectric.RuntimeEnvironment.getApplication()
+            val tempImage = java.io.File.createTempFile("test_import_", ".png", context.cacheDir)
+            val testBmp = Bitmap.createBitmap(300, 400, Bitmap.Config.ARGB_8888)
+            java.io.FileOutputStream(tempImage).use { out ->
+                testBmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+            testBmp.recycle()
+
+            val uri = android.net.Uri.fromFile(tempImage)
+            val loadedList = DocumentProcessor.loadBitmapsFromUri(context, uri)
+            assertEquals(1, loadedList.size)
+            assertEquals(300, loadedList[0].width)
+            assertEquals(400, loadedList[0].height)
+            loadedList[0].recycle()
+            tempImage.delete()
+        }
+    }
 }

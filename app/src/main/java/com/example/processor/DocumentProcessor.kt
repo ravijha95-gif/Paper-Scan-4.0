@@ -9,11 +9,14 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.pdf.PdfRenderer
 import android.media.ExifInterface
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -1226,7 +1229,62 @@ object DocumentProcessor {
     }
 
     /**
-     * Decodes a Bitmap from Android content Uri (e.g. from Photo Picker) at full practical resolution
+     * Reliably loads one or more Bitmaps from any Android content or file Uri.
+     * Supports:
+     * 1. Multi-page PDF documents rendered at high resolution (~300 DPI) using Android's native PdfRenderer.
+     * 2. Image formats (JPEG, PNG, WEBP, HEIC, BMP) with EXIF orientation correction and memory-safe decoding.
+     * 3. Transient URI safety: copies stream to a local cache file first, avoiding SecurityExceptions
+     *    or closed-stream errors from third-party storage providers.
+     */
+    suspend fun loadBitmapsFromUri(
+        context: Context,
+        uri: Uri,
+        maxDimension: Int = MAX_CAPTURE_DIMENSION
+    ): List<Bitmap> = withContext(Dispatchers.IO) {
+        val cacheDir = context.cacheDir
+        val tempFile = try {
+            File.createTempFile("import_${System.currentTimeMillis()}_", ".tmp", cacheDir).apply {
+                deleteOnExit()
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            null
+        } ?: return@withContext emptyList()
+
+        if (tempFile.length() <= 0L) {
+            try { tempFile.delete() } catch (_: Exception) {}
+            return@withContext emptyList()
+        }
+
+        try {
+            // Check if the file is a PDF
+            if (isPdfFile(context, uri, tempFile)) {
+                val pdfBitmaps = renderPdfPages(tempFile, maxDimension)
+                if (pdfBitmaps.isNotEmpty()) {
+                    return@withContext pdfBitmaps
+                }
+            }
+
+            // Otherwise, decode as standard image file
+            val imageBitmap = decodeImageFile(tempFile, maxDimension)
+            if (imageBitmap != null) {
+                listOf(imageBitmap)
+            } else {
+                emptyList()
+            }
+        } finally {
+            try {
+                if (tempFile.exists()) tempFile.delete()
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Decodes a single Bitmap from Android content Uri at full practical resolution
      * while respecting EXIF orientation metadata.
      */
     suspend fun loadBitmapFromUri(
@@ -1234,46 +1292,113 @@ object DocumentProcessor {
         uri: Uri,
         maxDimension: Int = MAX_CAPTURE_DIMENSION
     ): Bitmap? = withContext(Dispatchers.IO) {
-        try {
-            val exifOrientation = try {
-                context.contentResolver.openInputStream(uri)?.use { exifStream ->
-                    val exif = ExifInterface(exifStream)
-                    exif.getAttributeInt(
-                        ExifInterface.TAG_ORIENTATION,
-                        ExifInterface.ORIENTATION_NORMAL
-                    )
-                } ?: ExifInterface.ORIENTATION_NORMAL
-            } catch (_: Exception) {
-                ExifInterface.ORIENTATION_NORMAL
-            }
+        loadBitmapsFromUri(context, uri, maxDimension).firstOrNull()
+    }
 
-            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { boundsStream ->
-                BitmapFactory.decodeStream(boundsStream, null, options)
-            } ?: return@withContext null
+    private fun isPdfFile(context: Context, uri: Uri, file: File): Boolean {
+        // 1. MIME type check
+        val mime = try { context.contentResolver.getType(uri) } catch (_: Exception) { null }
+        if (mime != null && mime.contains("pdf", ignoreCase = true)) {
+            return true
+        }
 
-            var sampleSize = calculateInSampleSize(options.outWidth, options.outHeight, maxDimension)
+        // 2. URI path or display name check
+        val path = uri.path ?: ""
+        if (path.endsWith(".pdf", ignoreCase = true)) {
+            return true
+        }
 
-            var decoded: Bitmap? = null
-            while (decoded == null && sampleSize <= 16) {
+        // 3. Magic bytes check: PDF header "%PDF" (0x25, 0x50, 0x44, 0x46)
+        return try {
+            if (file.length() >= 4) {
+                val header = ByteArray(4)
+                FileInputStream(file).use { it.read(header) }
+                header[0] == '%'.code.toByte() &&
+                header[1] == 'P'.code.toByte() &&
+                header[2] == 'D'.code.toByte() &&
+                header[3] == 'F'.code.toByte()
+            } else false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun renderPdfPages(file: File, maxDimension: Int): List<Bitmap> {
+        val pfd = try {
+            ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        } catch (_: Exception) {
+            return emptyList()
+        }
+
+        return try {
+            val renderer = PdfRenderer(pfd)
+            val count = renderer.pageCount
+            val pages = mutableListOf<Bitmap>()
+
+            for (i in 0 until count) {
                 try {
-                    val decodeOptions = BitmapFactory.Options().apply {
-                        inSampleSize = sampleSize
-                        inScaled = false
-                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                    val page = renderer.openPage(i)
+                    // High-quality document rendering (approx 300 DPI vs standard 72 DPI screen points)
+                    val baseScale = 300f / 72f
+                    val maxPageDim = maxOf(page.width, page.height).coerceAtLeast(1)
+                    val fitScale = if (maxPageDim * baseScale > maxDimension) {
+                        maxDimension.toFloat() / maxPageDim
+                    } else {
+                        baseScale
                     }
-                    decoded = context.contentResolver.openInputStream(uri)?.use { decodeStream ->
-                        BitmapFactory.decodeStream(decodeStream, null, decodeOptions)
-                    }
-                } catch (_: OutOfMemoryError) {
-                    sampleSize *= 2
+                    val targetScale = fitScale.coerceIn(1.0f, 6.0f)
+                    val outW = (page.width * targetScale).roundToInt().coerceAtLeast(1)
+                    val outH = (page.height * targetScale).roundToInt().coerceAtLeast(1)
+
+                    val pageBmp = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+                    val canvas = Canvas(pageBmp)
+                    // White paper background (PDF pages can have transparent background by default)
+                    canvas.drawColor(Color.WHITE)
+                    page.render(pageBmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    page.close()
+                    pages.add(pageBmp)
+                } catch (_: Exception) {
+                    // Continue to next page if one fails
                 }
             }
-
-            decoded?.let { applyExifOrientation(it, exifOrientation) }
-        } catch (e: Exception) {
-            null
+            renderer.close()
+            pages
+        } catch (_: Exception) {
+            emptyList()
+        } finally {
+            try { pfd.close() } catch (_: Exception) {}
         }
+    }
+
+    private fun decodeImageFile(file: File, maxDimension: Int): Bitmap? {
+        val exifOrientation = try {
+            val exif = ExifInterface(file.absolutePath)
+            exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        } catch (_: Exception) {
+            ExifInterface.ORIENTATION_NORMAL
+        }
+
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, options)
+        if (options.outWidth <= 0 || options.outHeight <= 0) return null
+
+        var sampleSize = calculateInSampleSize(options.outWidth, options.outHeight, maxDimension)
+        var decoded: Bitmap? = null
+
+        while (decoded == null && sampleSize <= 16) {
+            try {
+                val decodeOptions = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                    inScaled = false
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                decoded = BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
+            } catch (_: OutOfMemoryError) {
+                sampleSize *= 2
+            }
+        }
+
+        return decoded?.let { applyExifOrientation(it, exifOrientation) }
     }
 
     /**

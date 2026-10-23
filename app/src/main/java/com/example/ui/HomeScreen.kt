@@ -127,6 +127,15 @@ fun HomeScreen(
         }
     }
 
+    // Document/File picker launcher for PDFs and images
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            viewModel.onFilesImported(uris)
+        }
+    }
+
     Scaffold(
         modifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing),
         topBar = {
@@ -216,7 +225,19 @@ fun HomeScreen(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Secondary FAB: Gallery Import
+                // Secondary FAB 1: Document / PDF Import
+                FloatingActionButton(
+                    onClick = {
+                        documentPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
+                    },
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                    modifier = Modifier.testTag("import_document_fab")
+                ) {
+                    Icon(Icons.Default.PictureAsPdf, contentDescription = stringResource(R.string.import_documents))
+                }
+
+                // Secondary FAB 2: Gallery Import
                 FloatingActionButton(
                     onClick = {
                         photoPickerLauncher.launch(
@@ -264,6 +285,9 @@ fun HomeScreen(
                         photoPickerLauncher.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                         )
+                    },
+                    onImportDocClick = {
+                        documentPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
                     },
                     onSampleClick = {
                         viewModel.importSampleDocument()
@@ -613,6 +637,7 @@ fun DocumentGridItem(
 fun EmptyStateView(
     onScanClick: () -> Unit,
     onImportClick: () -> Unit,
+    onImportDocClick: () -> Unit,
     onSampleClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -661,7 +686,7 @@ fun EmptyStateView(
         Button(
             onClick = onScanClick,
             modifier = Modifier
-                .fillMaxWidth(0.75f)
+                .fillMaxWidth(0.8f)
                 .height(48.dp)
                 .testTag("empty_state_scan_button")
         ) {
@@ -670,12 +695,30 @@ fun EmptyStateView(
             Text(stringResource(R.string.scan_new_document))
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Button(
+            onClick = onImportDocClick,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            ),
+            modifier = Modifier
+                .fillMaxWidth(0.8f)
+                .height(48.dp)
+                .testTag("empty_state_import_doc_button")
+        ) {
+            Icon(Icons.Default.PictureAsPdf, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(stringResource(R.string.import_documents))
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
 
         OutlinedButton(
             onClick = onImportClick,
             modifier = Modifier
-                .fillMaxWidth(0.75f)
+                .fillMaxWidth(0.8f)
                 .height(48.dp)
                 .testTag("empty_state_import_button")
         ) {
@@ -684,7 +727,7 @@ fun EmptyStateView(
             Text(stringResource(R.string.import_photos))
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
         TextButton(
             onClick = onSampleClick,

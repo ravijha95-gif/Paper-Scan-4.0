@@ -44,4 +44,10 @@
     <string name="reorder_pages_title">Rearrange Page Order</string>
     <string name="created_by">Created by Rabi Jha</string>
     <string name="about_app">About PaperScan</string>
+    <string name="import_documents">Import PDF / Files</string>
+    <string name="import_success_n_pages">Successfully imported %1$d page(s)</string>
+    <string name="import_failed_msg">Unable to read the selected file(s). Please choose valid images or PDF documents.</string>
+    <string name="import_options_title">Import Document</string>
+    <string name="import_from_files">Import PDF or Document Files</string>
+    <string name="import_from_gallery">Import Photos from Gallery</string>
 </resources>
