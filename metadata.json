@@ -1,0 +1,6 @@
+{
+  "name": "PaperScan",
+  "description": "Offline document scanner with automatic paper edge detection, perspective correction, color enhancement filters, multi-page PDF generation, and sharing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
