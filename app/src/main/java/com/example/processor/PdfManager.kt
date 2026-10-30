@@ -39,7 +39,8 @@ object PdfManager {
         pageImagePaths: List<String>,
         documentTitle: String,
         pageSize: PdfPageSize = PdfPageSize.A4,
-        quality: PdfQuality = PdfQuality.HIGH
+        quality: PdfQuality = PdfQuality.HIGH,
+        customScaleFactor: Float = 1.0f
     ): File = withContext(Dispatchers.IO) {
         val pdfDocument = PdfDocument()
 
@@ -48,10 +49,12 @@ object PdfManager {
         val pdfsDir = File(context.filesDir, "pdfs").apply { if (!exists()) mkdirs() }
         val outputFile = File(pdfsDir, "${safeTitle}_${timestamp}.pdf")
 
-        // Print-grade 300 DPI A4 dimensions: 2480 x 3508 pixels (scaled by quality factor)
-        val baseA4Short = (2480 * quality.scaleFactor).toInt().coerceAtLeast(595)
-        val baseA4Long = (3508 * quality.scaleFactor).toInt().coerceAtLeast(842)
-        val baseMargin = (48 * quality.scaleFactor).toInt().coerceAtLeast(16)
+        val effectiveScale = (quality.scaleFactor * customScaleFactor).coerceIn(0.2f, 1.0f)
+
+        // Print-grade 300 DPI A4 dimensions: 2480 x 3508 pixels (scaled by quality and custom factor)
+        val baseA4Short = (2480 * effectiveScale).toInt().coerceAtLeast(595)
+        val baseA4Long = (3508 * effectiveScale).toInt().coerceAtLeast(842)
+        val baseMargin = (48 * effectiveScale).toInt().coerceAtLeast(16)
 
         var pageIndex = 1
 
@@ -65,10 +68,10 @@ object PdfManager {
                 maxDimension = DocumentProcessor.MAX_CAPTURE_DIMENSION
             ) ?: continue
 
-            // Apply quality scale if requested by user
-            val bmp = if (quality.scaleFactor < 1.0f) {
-                val newW = (originalBmp.width * quality.scaleFactor).toInt().coerceAtLeast(200)
-                val newH = (originalBmp.height * quality.scaleFactor).toInt().coerceAtLeast(200)
+            // Apply effective scale if requested by user
+            val bmp = if (effectiveScale < 0.99f) {
+                val newW = (originalBmp.width * effectiveScale).toInt().coerceAtLeast(200)
+                val newH = (originalBmp.height * effectiveScale).toInt().coerceAtLeast(200)
                 val scaled = Bitmap.createScaledBitmap(originalBmp, newW, newH, true)
                 if (scaled !== originalBmp) originalBmp.recycle()
                 scaled
@@ -236,5 +239,87 @@ object PdfManager {
             }
         }
         savedCount
+    }
+
+    /**
+     * Formats bytes into human-readable size string (e.g. "480 KB", "2.1 MB").
+     */
+    fun formatFileSize(bytes: Long): String {
+        if (bytes <= 0) return "0 KB"
+        val kb = bytes / 1024.0
+        val mb = kb / 1024.0
+        return when {
+            mb >= 1.0 -> String.format(java.util.Locale.US, "%.1f MB", mb)
+            else -> String.format(java.util.Locale.US, "%.0f KB", kb.coerceAtLeast(1.0))
+        }
+    }
+
+    /**
+     * Computes or estimates the expected PDF file size based on original image file sizes and scale/quality factors.
+     */
+    fun estimatePdfSize(imageFiles: List<File>, scaleFactor: Float, compressQuality: Int): Long {
+        val totalRaw = imageFiles.filter { it.exists() }.sumOf { it.length() }
+        val effectiveScale = scaleFactor.coerceIn(0.2f, 1.0f)
+        // JPEG in PDF scales roughly with area (scale^2) and quality ratio
+        val areaRatio = effectiveScale * effectiveScale
+        val qualityRatio = (compressQuality / 100f).coerceIn(0.5f, 1.0f)
+        val estimated = (totalRaw * areaRatio * qualityRatio * 0.95f).toLong()
+        return estimated.coerceAtLeast(25_000L * imageFiles.size.coerceAtLeast(1))
+    }
+
+    /**
+     * Resizes JPEG images to a requested scale factor (e.g. 100%, 75%, 50%, 25%) and compression quality.
+     * Returns newly created temporary files ready for sharing or saving.
+     */
+    suspend fun exportResizedJpegs(
+        context: Context,
+        imageFiles: List<File>,
+        documentTitle: String,
+        scaleFactor: Float = 1.0f,
+        qualityPercent: Int = 90
+    ): List<File> = withContext(Dispatchers.IO) {
+        val safeDocName = documentTitle.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        val timestamp = System.currentTimeMillis()
+        val exportDir = File(context.cacheDir, "exports").apply { if (!exists()) mkdirs() }
+
+        val clampedScale = scaleFactor.coerceIn(0.2f, 1.0f)
+        val clampedQuality = qualityPercent.coerceIn(40, 100)
+
+        val resultFiles = mutableListOf<File>()
+
+        for ((idx, file) in imageFiles.withIndex()) {
+            if (!file.exists()) continue
+
+            // If no resize needed and quality is original, use original file directly
+            if (clampedScale >= 0.99f && clampedQuality >= 95) {
+                resultFiles.add(file)
+                continue
+            }
+
+            val bmp = DocumentProcessor.loadBitmapFromFile(file.absolutePath)
+            if (bmp != null) {
+                val targetW = (bmp.width * clampedScale).toInt().coerceAtLeast(100)
+                val targetH = (bmp.height * clampedScale).toInt().coerceAtLeast(100)
+
+                val scaledBmp = if (targetW != bmp.width || targetH != bmp.height) {
+                    val s = Bitmap.createScaledBitmap(bmp, targetW, targetH, true)
+                    if (s !== bmp) bmp.recycle()
+                    s
+                } else {
+                    bmp
+                }
+
+                val outFile = File(exportDir, "${safeDocName}_page_${idx + 1}_${(clampedScale * 100).toInt()}pct_$timestamp.jpg")
+                FileOutputStream(outFile).use { out ->
+                    scaledBmp.compress(Bitmap.CompressFormat.JPEG, clampedQuality, out)
+                }
+                scaledBmp.recycle()
+                resultFiles.add(outFile)
+            } else {
+                resultFiles.add(file)
+            }
+        }
+
+        resultFiles
     }
 }

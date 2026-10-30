@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.graphics.Bitmap
+import android.graphics.Matrix
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CropFree
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -43,6 +45,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.io.File
+import java.io.FileOutputStream
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -124,6 +131,58 @@ fun PerspectiveCropScreen(
         }
     }
 
+    val coroutineScope = rememberCoroutineScope()
+
+    fun rotateImageAndCorners90() {
+        val currentBmp = loadedBitmap ?: return
+        val oldW = currentBmp.width.toFloat()
+        val oldH = currentBmp.height.toFloat()
+        val matrix = Matrix().apply { postRotate(90f) }
+        val rotatedBmp = Bitmap.createBitmap(currentBmp, 0, 0, currentBmp.width, currentBmp.height, matrix, true)
+
+        fun rotatePoint(p: CornerPoint): CornerPoint = CornerPoint(
+            x = oldH - p.y,
+            y = p.x
+        )
+
+        val cur = corners
+        val newCorners = if (cur != null) {
+            Corners(
+                topLeft = rotatePoint(cur.bottomLeft),
+                topRight = rotatePoint(cur.topLeft),
+                bottomRight = rotatePoint(cur.topRight),
+                bottomLeft = rotatePoint(cur.bottomRight),
+                confidence = cur.confidence
+            )
+        } else {
+            DocumentProcessor.detectCorners(rotatedBmp)
+        }
+
+        val initCur = initialDetectedCorners
+        val newInitial = if (initCur != null) {
+            Corners(
+                topLeft = rotatePoint(initCur.bottomLeft),
+                topRight = rotatePoint(initCur.topLeft),
+                bottomRight = rotatePoint(initCur.topRight),
+                bottomLeft = rotatePoint(initCur.bottomRight),
+                confidence = initCur.confidence
+            )
+        } else newCorners
+
+        // Save rotated bitmap to originalImagePath on background thread
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                FileOutputStream(File(originalImagePath)).use { out ->
+                    rotatedBmp.compress(Bitmap.CompressFormat.JPEG, 98, out)
+                }
+            } catch (_: Exception) {}
+        }
+
+        loadedBitmap = rotatedBmp
+        corners = newCorners
+        initialDetectedCorners = newInitial
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -169,6 +228,17 @@ fun PerspectiveCropScreen(
                 }
             },
             actions = {
+                IconButton(
+                    onClick = { rotateImageAndCorners90() },
+                    modifier = Modifier.testTag("crop_rotate_button")
+                ) {
+                    Icon(
+                        Icons.Default.RotateRight,
+                        contentDescription = stringResource(R.string.rotate_crop),
+                        tint = Color.White
+                    )
+                }
+
                 Button(
                     onClick = {
                         corners?.let { onProceed(it) }
@@ -567,6 +637,17 @@ fun PerspectiveCropScreen(
                     Icon(Icons.Default.CropFree, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(stringResource(R.string.full_image))
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        rotateImageAndCorners90()
+                    },
+                    modifier = Modifier.testTag("rotate_crop_bottom_button")
+                ) {
+                    Icon(Icons.Default.RotateRight, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(stringResource(R.string.rotate_crop))
                 }
 
                 OutlinedButton(

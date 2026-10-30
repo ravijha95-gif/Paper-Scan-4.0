@@ -27,26 +27,35 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.AlertDialog
@@ -54,6 +63,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,9 +82,11 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -113,6 +125,12 @@ fun HomeScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    var isGridView by rememberSaveable { mutableStateOf(true) }
+    var isSelectionMode by remember { mutableStateOf(false) }
+    val selectedDocIds = remember { mutableStateListOf<Long>() }
+    var showShareTogetherDialog by remember { mutableStateOf(false) }
+    var showBatchDeleteDialog by remember { mutableStateOf(false) }
+
     var isSearchActive by remember { mutableStateOf(false) }
     var documentToRename by remember { mutableStateOf<DocumentEntity?>(null) }
     var documentToDelete by remember { mutableStateOf<DocumentEntity?>(null) }
@@ -136,138 +154,231 @@ fun HomeScreen(
         }
     }
 
+    // Handle system back button when in multi-selection mode
+    BackHandler(enabled = isSelectionMode) {
+        isSelectionMode = false
+        selectedDocIds.clear()
+    }
+
     Scaffold(
         modifier = modifier.windowInsetsPadding(WindowInsets.safeDrawing),
         topBar = {
-            TopAppBar(
-                title = {
-                    if (isSearchActive) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { viewModel.onSearchQueryChanged(it) },
-                            placeholder = { Text(stringResource(R.string.search_documents)) },
-                            singleLine = true,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("search_text_field"),
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
-                                        Icon(Icons.Default.Clear, contentDescription = "Clear search")
+            if (isSelectionMode) {
+                // Selection Mode Top App Bar
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = "${selectedDocIds.size} ${stringResource(R.string.n_selected)}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = {
+                                isSelectionMode = false
+                                selectedDocIds.clear()
+                            },
+                            modifier = Modifier.testTag("exit_selection_button")
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Exit selection")
+                        }
+                    },
+                    actions = {
+                        // Select All / Deselect All
+                        IconButton(
+                            onClick = {
+                                if (selectedDocIds.size == documents.size) {
+                                    selectedDocIds.clear()
+                                } else {
+                                    selectedDocIds.clear()
+                                    selectedDocIds.addAll(documents.map { it.id })
+                                }
+                            },
+                            modifier = Modifier.testTag("select_all_button")
+                        ) {
+                            Icon(Icons.Default.SelectAll, contentDescription = stringResource(R.string.select_all))
+                        }
+
+                        // Share Together
+                        IconButton(
+                            onClick = {
+                                if (selectedDocIds.isNotEmpty()) {
+                                    showShareTogetherDialog = true
+                                }
+                            },
+                            enabled = selectedDocIds.isNotEmpty(),
+                            modifier = Modifier.testTag("share_together_action_button")
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share_together))
+                        }
+
+                        // Delete Selected
+                        IconButton(
+                            onClick = {
+                                if (selectedDocIds.isNotEmpty()) {
+                                    showBatchDeleteDialog = true
+                                }
+                            },
+                            enabled = selectedDocIds.isNotEmpty(),
+                            modifier = Modifier.testTag("delete_selected_action_button")
+                        ) {
+                            Icon(
+                                Icons.Default.Delete,
+                                contentDescription = stringResource(R.string.delete_selected),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                )
+            } else {
+                // Standard Top App Bar
+                TopAppBar(
+                    title = {
+                        if (isSearchActive) {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { viewModel.onSearchQueryChanged(it) },
+                                placeholder = { Text(stringResource(R.string.search_documents)) },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("search_text_field"),
+                                trailingIcon = {
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
+                                            Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                                        }
                                     }
                                 }
-                            }
-                        )
-                    } else {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(38.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.DocumentScanner,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(24.dp)
+                            )
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(38.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.DocumentScanner,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = stringResource(R.string.app_name),
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.created_by),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.app_name),
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = stringResource(R.string.created_by),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
                         }
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            isSearchActive = !isSearchActive
-                            if (!isSearchActive) viewModel.onSearchQueryChanged("")
-                        },
-                        modifier = Modifier.testTag("toggle_search_button")
-                    ) {
-                        Icon(
-                            if (isSearchActive) Icons.Default.Clear else Icons.Default.Search,
-                            contentDescription = if (isSearchActive) "Close Search" else "Search"
-                        )
-                    }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = {
+                                isSearchActive = !isSearchActive
+                                if (!isSearchActive) viewModel.onSearchQueryChanged("")
+                            },
+                            modifier = Modifier.testTag("toggle_search_button")
+                        ) {
+                            Icon(
+                                if (isSearchActive) Icons.Default.Clear else Icons.Default.Search,
+                                contentDescription = if (isSearchActive) "Close Search" else "Search"
+                            )
+                        }
 
-                    IconButton(
-                        onClick = { showAboutDialog = true },
-                        modifier = Modifier.testTag("about_app_button")
-                    ) {
-                        Icon(
-                            Icons.Default.Info,
-                            contentDescription = stringResource(R.string.about_app)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                        // Toggle List View & Grid View
+                        IconButton(
+                            onClick = { isGridView = !isGridView },
+                            modifier = Modifier.testTag("toggle_view_mode_button")
+                        ) {
+                            Icon(
+                                if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                                contentDescription = if (isGridView) stringResource(R.string.list_view) else stringResource(R.string.grid_view)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { showAboutDialog = true },
+                            modifier = Modifier.testTag("about_app_button")
+                        ) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = stringResource(R.string.about_app)
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
                 )
-            )
+            }
         },
         floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Secondary FAB 1: Document / PDF Import
-                FloatingActionButton(
-                    onClick = {
-                        documentPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
-                    },
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                    modifier = Modifier.testTag("import_document_fab")
+            if (!isSelectionMode) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.PictureAsPdf, contentDescription = stringResource(R.string.import_documents))
-                }
-
-                // Secondary FAB 2: Gallery Import
-                FloatingActionButton(
-                    onClick = {
-                        photoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                        )
-                    },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.testTag("import_gallery_fab")
-                ) {
-                    Icon(Icons.Outlined.PhotoLibrary, contentDescription = stringResource(R.string.import_photos))
-                }
-
-                // Primary FAB: Camera Scan
-                FloatingActionButton(
-                    onClick = { onNavigateToCamera(false) },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.testTag("camera_scan_fab")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Secondary FAB 1: Document / PDF Import
+                    FloatingActionButton(
+                        onClick = {
+                            documentPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
+                        },
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.testTag("import_document_fab")
                     ) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = stringResource(R.string.scan_new_document))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = stringResource(R.string.scan_new_document),
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = stringResource(R.string.import_documents))
+                    }
+
+                    // Secondary FAB 2: Gallery Import
+                    FloatingActionButton(
+                        onClick = {
+                            photoPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.testTag("import_gallery_fab")
+                    ) {
+                        Icon(Icons.Outlined.PhotoLibrary, contentDescription = stringResource(R.string.import_photos))
+                    }
+
+                    // Primary FAB: Camera Scan
+                    FloatingActionButton(
+                        onClick = { onNavigateToCamera(false) },
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.testTag("camera_scan_fab")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = stringResource(R.string.scan_new_document))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.scan_new_document),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }
@@ -293,7 +404,8 @@ fun HomeScreen(
                         viewModel.importSampleDocument()
                     }
                 )
-            } else {
+            } else if (isGridView) {
+                // Adaptive 2-Column Grid View
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 160.dp),
                     contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 96.dp),
@@ -304,9 +416,37 @@ fun HomeScreen(
                         .testTag("documents_grid")
                 ) {
                     items(documents, key = { it.id }) { doc ->
+                        val isSelected = doc.id in selectedDocIds
                         DocumentGridItem(
                             document = doc,
-                            onClick = { onOpenDocument(doc.id) },
+                            isSelected = isSelected,
+                            isSelectionMode = isSelectionMode,
+                            onClick = {
+                                if (isSelectionMode) {
+                                    if (isSelected) {
+                                        selectedDocIds.remove(doc.id)
+                                        if (selectedDocIds.isEmpty()) isSelectionMode = false
+                                    } else {
+                                        selectedDocIds.add(doc.id)
+                                    }
+                                } else {
+                                    onOpenDocument(doc.id)
+                                }
+                            },
+                            onLongClick = {
+                                if (!isSelectionMode) {
+                                    isSelectionMode = true
+                                    selectedDocIds.clear()
+                                    selectedDocIds.add(doc.id)
+                                } else {
+                                    if (isSelected) {
+                                        selectedDocIds.remove(doc.id)
+                                        if (selectedDocIds.isEmpty()) isSelectionMode = false
+                                    } else {
+                                        selectedDocIds.add(doc.id)
+                                    }
+                                }
+                            },
                             onRename = { documentToRename = doc },
                             onDelete = { documentToDelete = doc },
                             onSharePdf = {
@@ -359,8 +499,229 @@ fun HomeScreen(
                         }
                     }
                 }
+            } else {
+                // Detailed List View
+                LazyColumn(
+                    contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("documents_list")
+                ) {
+                    items(documents, key = { it.id }) { doc ->
+                        val isSelected = doc.id in selectedDocIds
+                        DocumentListItem(
+                            document = doc,
+                            isSelected = isSelected,
+                            isSelectionMode = isSelectionMode,
+                            onClick = {
+                                if (isSelectionMode) {
+                                    if (isSelected) {
+                                        selectedDocIds.remove(doc.id)
+                                        if (selectedDocIds.isEmpty()) isSelectionMode = false
+                                    } else {
+                                        selectedDocIds.add(doc.id)
+                                    }
+                                } else {
+                                    onOpenDocument(doc.id)
+                                }
+                            },
+                            onLongClick = {
+                                if (!isSelectionMode) {
+                                    isSelectionMode = true
+                                    selectedDocIds.clear()
+                                    selectedDocIds.add(doc.id)
+                                } else {
+                                    if (isSelected) {
+                                        selectedDocIds.remove(doc.id)
+                                        if (selectedDocIds.isEmpty()) isSelectionMode = false
+                                    } else {
+                                        selectedDocIds.add(doc.id)
+                                    }
+                                }
+                            },
+                            onRename = { documentToRename = doc },
+                            onDelete = { documentToDelete = doc },
+                            onSharePdf = {
+                                coroutineScope.launch {
+                                    val dao = com.example.data.AppDatabase.getDatabase(context).documentDao()
+                                    val pages = dao.getPagesForDocument(doc.id)
+                                    val pdfFile = viewModel.exportPdf(doc, pages, PdfPageSize.A4, PdfQuality.REGULAR)
+                                    if (pdfFile != null && pdfFile.exists()) {
+                                        val shareIntent = PdfManager.createSharePdfIntent(context, pdfFile, doc.title)
+                                        context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Document PDF"))
+                                    } else {
+                                        Toast.makeText(context, "Failed to generate PDF", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        )
+                    }
+
+                    // Created By Rabi Jha Footer Badge
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp, bottom = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = stringResource(R.string.created_by),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
+    }
+
+    // Share Together Dialog (Multi-Document batch export)
+    if (showShareTogetherDialog) {
+        AlertDialog(
+            onDismissRequest = { showShareTogetherDialog = false },
+            icon = {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(52.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Share, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            },
+            title = {
+                Text(
+                    text = "${stringResource(R.string.share_together)} (${selectedDocIds.size})",
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Export and share all selected document threads together as a consolidated PDF or image set:",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    // Option 1: Combined PDF
+                    Button(
+                        onClick = {
+                            showShareTogetherDialog = false
+                            val docIds = selectedDocIds.toList()
+                            coroutineScope.launch {
+                                val pdfFile = viewModel.exportMultipleDocumentsPdf(
+                                    documentIds = docIds,
+                                    pageSize = PdfPageSize.A4,
+                                    quality = PdfQuality.REGULAR,
+                                    customScaleFactor = 1.0f
+                                )
+                                if (pdfFile != null && pdfFile.exists()) {
+                                    val shareIntent = PdfManager.createSharePdfIntent(context, pdfFile, "PaperScan_Combined_Documents")
+                                    context.startActivity(android.content.Intent.createChooser(shareIntent, "Share Combined PDF"))
+                                    isSelectionMode = false
+                                    selectedDocIds.clear()
+                                } else {
+                                    Toast.makeText(context, "Failed to compile combined PDF", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("share_combined_pdf_button")
+                    ) {
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.share_combined_pdf))
+                    }
+
+                    // Option 2: Share Selected Images
+                    OutlinedButton(
+                        onClick = {
+                            showShareTogetherDialog = false
+                            val docIds = selectedDocIds.toList()
+                            coroutineScope.launch {
+                                val imageFiles = viewModel.getAllImageFilesForDocuments(docIds)
+                                if (imageFiles.isNotEmpty()) {
+                                    val shareIntent = PdfManager.createShareMultipleImagesIntent(
+                                        context, imageFiles, "PaperScan_Batch_Images"
+                                    )
+                                    context.startActivity(android.content.Intent.createChooser(shareIntent, "Share All Pages as JPEGs"))
+                                    isSelectionMode = false
+                                    selectedDocIds.clear()
+                                } else {
+                                    Toast.makeText(context, "No images found to share", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("share_selected_images_button")
+                    ) {
+                        Icon(Icons.Outlined.PhotoLibrary, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.share_selected_images))
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showShareTogetherDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    // Batch Delete Confirmation Dialog
+    if (showBatchDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showBatchDeleteDialog = false },
+            title = { Text(stringResource(R.string.delete_selected)) },
+            text = { Text("Are you sure you want to delete ${selectedDocIds.size} selected document(s)? This action cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteMultipleDocuments(selectedDocIds.toList())
+                        showBatchDeleteDialog = false
+                        isSelectionMode = false
+                        selectedDocIds.clear()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("confirm_batch_delete_button")
+                ) {
+                    Text("Delete (${selectedDocIds.size})")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchDeleteDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
     }
 
     // Rename Dialog
@@ -498,10 +859,18 @@ fun HomeScreen(
     }
 }
 
+/**
+ * Grid presentation card for a scanned document thread.
+ * Supports tap to open, long press to trigger multi-selection, and selection indicator.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DocumentGridItem(
     document: DocumentEntity,
+    isSelected: Boolean = false,
+    isSelectionMode: Boolean = false,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onSharePdf: () -> Unit,
@@ -514,14 +883,21 @@ fun DocumentGridItem(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
             .testTag("document_card_${document.id}"),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
+        border = if (isSelected) BorderStroke(2.5.dp, MaterialTheme.colorScheme.primary) else null,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column {
-            // Thumbnail Preview with page count badge
+            // Thumbnail Preview with page count badge + selection checkmark
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -546,6 +922,24 @@ fun DocumentGridItem(
                             modifier = Modifier.size(56.dp),
                             tint = Color.Gray
                         )
+                    }
+                }
+
+                // Selection checkmark or page count pill
+                if (isSelectionMode) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                            .size(28.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            if (isSelected) {
+                                Icon(Icons.Default.Check, contentDescription = "Selected", tint = Color.White, modifier = Modifier.size(18.dp))
+                            }
+                        }
                     }
                 }
 
@@ -590,6 +984,165 @@ fun DocumentGridItem(
                     )
                 }
 
+                if (!isSelectionMode) {
+                    Box {
+                        IconButton(
+                            onClick = { menuExpanded = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Options")
+                        }
+
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Share PDF") },
+                                leadingIcon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onSharePdf()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Rename") },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onRename()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Delete") },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDelete()
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Detailed List View representation for a scanned document thread.
+ * Shows horizontal layout with thumbnail, title, date, page badge, and selection check.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun DocumentListItem(
+    document: DocumentEntity,
+    isSelected: Boolean = false,
+    isSelectionMode: Boolean = false,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    onSharePdf: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
+    val dateStr = remember(document.updatedAt) { dateFormat.format(Date(document.updatedAt)) }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+            .testTag("document_list_card_${document.id}"),
+        shape = RoundedCornerShape(14.dp),
+        border = if (isSelected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Checkbox when in selection mode
+            if (isSelectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onClick() },
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+            }
+
+            // Thumbnail
+            Box(
+                modifier = Modifier
+                    .size(62.dp, 82.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFFE2E8F0))
+            ) {
+                if (document.coverImagePath.isNotBlank() && File(document.coverImagePath).exists()) {
+                    AsyncImage(
+                        model = File(document.coverImagePath),
+                        contentDescription = document.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Outlined.Description,
+                            contentDescription = null,
+                            modifier = Modifier.size(32.dp),
+                            tint = Color.Gray
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            // Title, date, and page count
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = document.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = dateStr,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Text(
+                            text = "${document.pageCount} ${if (document.pageCount == 1) "page" else "pages"}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
+            // Options menu (if not in selection mode)
+            if (!isSelectionMode) {
                 Box {
                     IconButton(
                         onClick = { menuExpanded = true },

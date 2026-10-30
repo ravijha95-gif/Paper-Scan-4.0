@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -49,9 +51,12 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Reorder
 import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -61,6 +66,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,6 +76,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -81,6 +89,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -90,7 +99,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -106,8 +118,10 @@ import com.example.data.DocumentPageEntity
 import com.example.processor.PdfManager
 import com.example.processor.PdfPageSize
 import com.example.processor.PdfQuality
+import com.example.ui.components.FullScreenZoomDialog
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -141,6 +155,9 @@ fun DocumentDetailScreen(
     var showExportSheet by remember { mutableStateOf(false) }
     var showReorderSheet by remember { mutableStateOf(false) }
     var showTopMenu by remember { mutableStateOf(false) }
+    var showFullScreenZoom by remember { mutableStateOf(false) }
+    var zoomScale by remember { mutableFloatStateOf(1f) }
+    var zoomOffset by remember { mutableStateOf(Offset.Zero) }
 
     // Multi-photo picker launcher for adding pages from gallery
     val photoPickerLauncher = rememberLauncherForActivityResult(
@@ -284,7 +301,7 @@ fun DocumentDetailScreen(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // Main Page Large Preview
+            // Main Page Large Preview with Pinch-to-Zoom & Pan
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -296,19 +313,105 @@ fun DocumentDetailScreen(
                     CircularProgressIndicator()
                 } else if (activePage != null && File(activePage.processedImagePath).exists()) {
                     Card(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(safePageIndex) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    zoomScale = (zoomScale * zoom).coerceIn(1f, 5f)
+                                    val maxOffsetX = 450f * (zoomScale - 1f)
+                                    val maxOffsetY = 650f * (zoomScale - 1f)
+                                    zoomOffset = if (zoomScale > 1.05f) {
+                                        Offset(
+                                            (zoomOffset.x + pan.x).coerceIn(-maxOffsetX, maxOffsetX),
+                                            (zoomOffset.y + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
+                                        )
+                                    } else Offset.Zero
+                                }
+                            }
+                            .pointerInput(zoomScale) {
+                                detectTapGestures(
+                                    onDoubleTap = {
+                                        if (zoomScale > 1.1f) {
+                                            zoomScale = 1f
+                                            zoomOffset = Offset.Zero
+                                        } else {
+                                            zoomScale = 2.5f
+                                        }
+                                    }
+                                )
+                            },
                         shape = RoundedCornerShape(12.dp),
                         elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
                         colors = CardDefaults.cardColors(containerColor = Color.White)
                     ) {
-                        AsyncImage(
-                            model = File(activePage.processedImagePath),
-                            contentDescription = "Page ${safePageIndex + 1}",
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(8.dp)
-                        )
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            AsyncImage(
+                                model = File(activePage.processedImagePath),
+                                contentDescription = "Page ${safePageIndex + 1}",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(8.dp)
+                                    .graphicsLayer(
+                                        scaleX = zoomScale,
+                                        scaleY = zoomScale,
+                                        translationX = zoomOffset.x,
+                                        translationY = zoomOffset.y
+                                    )
+                            )
+
+                            // Quick Zoom Fullscreen Button overlay
+                            IconButton(
+                                onClick = { showFullScreenZoom = true },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(10.dp)
+                                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                                    .size(38.dp)
+                                    .testTag("action_zoom_fullscreen_overlay")
+                            ) {
+                                Icon(
+                                    Icons.Default.ZoomIn,
+                                    contentDescription = "Zoom inspection",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            // Zoom level pill indicator & quick reset
+                            if (zoomScale > 1.05f) {
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = Color.Black.copy(alpha = 0.7f),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(12.dp)
+                                        .clickable {
+                                            zoomScale = 1f
+                                            zoomOffset = Offset.Zero
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "${(zoomScale * 100).roundToInt()}%",
+                                            color = Color.White,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Icon(
+                                            Icons.Default.Refresh,
+                                            contentDescription = "Reset zoom",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else {
                     CircularProgressIndicator()
@@ -329,6 +432,14 @@ fun DocumentDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Inspect Zoom
+                        IconButton(
+                            onClick = { showFullScreenZoom = true },
+                            modifier = Modifier.testTag("action_zoom_page")
+                        ) {
+                            Icon(Icons.Default.ZoomIn, contentDescription = "Zoom & Inspect")
+                        }
+
                         // Reorder all pages
                         IconButton(
                             onClick = { showReorderSheet = true },
@@ -621,17 +732,17 @@ fun DocumentDetailScreen(
         )
     }
 
-    // Comprehensive Export & Share Modal Bottom Sheet (PDF + JPEGs + Save to Gallery)
+    // Comprehensive Export & Share Modal Bottom Sheet (PDF + JPEGs + Save to Gallery + Resize & Size Display)
     if (showExportSheet && document != null) {
         ExportShareBottomSheet(
             document = document,
             pages = pages,
             activePageIndex = safePageIndex,
             onDismiss = { showExportSheet = false },
-            onSharePdf = { pageSize, quality ->
+            onSharePdf = { pageSize, quality, scaleFactor ->
                 showExportSheet = false
                 coroutineScope.launch {
-                    val pdfFile = viewModel.exportPdf(document, pages, pageSize, quality)
+                    val pdfFile = viewModel.exportPdf(document, pages, pageSize, quality, customScaleFactor = scaleFactor)
                     if (pdfFile != null && pdfFile.exists()) {
                         val shareIntent = PdfManager.createSharePdfIntent(context, pdfFile, document.title)
                         context.startActivity(Intent.createChooser(shareIntent, "Share Document PDF"))
@@ -640,29 +751,48 @@ fun DocumentDetailScreen(
                     }
                 }
             },
-            onShareAllJpegs = {
+            onShareAllJpegs = { scaleFactor ->
                 showExportSheet = false
-                val files = pages.sortedBy { it.pageIndex }.map { File(it.processedImagePath) }
-                val shareIntent = PdfManager.createShareMultipleImagesIntent(context, files, document.title)
-                context.startActivity(Intent.createChooser(shareIntent, "Share All Pages as JPEGs"))
+                coroutineScope.launch {
+                    val files = pages.sortedBy { it.pageIndex }.map { File(it.processedImagePath) }
+                    val resizedFiles = if (scaleFactor < 0.98f) {
+                        PdfManager.exportResizedJpegs(context, files, document.title, scaleFactor, 90)
+                    } else files
+                    val shareIntent = PdfManager.createShareMultipleImagesIntent(context, resizedFiles, document.title)
+                    context.startActivity(Intent.createChooser(shareIntent, "Share All Pages as JPEGs"))
+                }
             },
-            onShareCurrentJpeg = {
+            onShareCurrentJpeg = { scaleFactor ->
                 showExportSheet = false
                 activePage?.let { page ->
-                    val file = File(page.processedImagePath)
-                    if (file.exists()) {
-                        val shareIntent = PdfManager.createShareImageIntent(context, file, "${document.title}_page_${safePageIndex + 1}")
-                        context.startActivity(Intent.createChooser(shareIntent, "Share Page JPEG"))
+                    coroutineScope.launch {
+                        val file = File(page.processedImagePath)
+                        if (file.exists()) {
+                            val targetFile = if (scaleFactor < 0.98f) {
+                                PdfManager.exportResizedJpegs(context, listOf(file), "${document.title}_p${safePageIndex + 1}", scaleFactor, 90).firstOrNull() ?: file
+                            } else file
+                            val shareIntent = PdfManager.createShareImageIntent(context, targetFile, "${document.title}_page_${safePageIndex + 1}")
+                            context.startActivity(Intent.createChooser(shareIntent, "Share Page JPEG"))
+                        }
                     }
                 }
             },
-            onSaveJpegsToGallery = {
+            onSaveJpegsToGallery = { _ ->
                 showExportSheet = false
                 coroutineScope.launch {
                     val count = viewModel.saveJpegsToGallery(document, pages)
                     Toast.makeText(context, "Saved $count images to Pictures/PaperScan", Toast.LENGTH_LONG).show()
                 }
             }
+        )
+    }
+
+    // Fullscreen precision zoom inspection
+    if (showFullScreenZoom && activePage != null) {
+        FullScreenZoomDialog(
+            imageFile = File(activePage.processedImagePath),
+            title = "${document?.title} - Page ${safePageIndex + 1}",
+            onDismiss = { showFullScreenZoom = false }
         )
     }
 }
@@ -687,7 +817,7 @@ fun ReorderPagesBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp)
+                .padding(horizontal = 24.dp, vertical = 12.dp)
                 .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
             Row(
@@ -803,7 +933,8 @@ fun ReorderPagesBottomSheet(
 }
 
 /**
- * Full-featured Export & Share Bottom Sheet supporting PDF format options and JPEG sharing.
+ * Full-featured Export & Share Bottom Sheet supporting PDF & JPEG export, dynamic file size preview,
+ * and customizable resolution resizing.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -812,16 +943,25 @@ fun ExportShareBottomSheet(
     pages: List<DocumentPageEntity>,
     activePageIndex: Int,
     onDismiss: () -> Unit,
-    onSharePdf: (pageSize: PdfPageSize, quality: PdfQuality) -> Unit,
-    onShareAllJpegs: () -> Unit,
-    onShareCurrentJpeg: () -> Unit,
-    onSaveJpegsToGallery: () -> Unit
+    onSharePdf: (pageSize: PdfPageSize, quality: PdfQuality, scaleFactor: Float) -> Unit,
+    onShareAllJpegs: (scaleFactor: Float) -> Unit,
+    onShareCurrentJpeg: (scaleFactor: Float) -> Unit,
+    onSaveJpegsToGallery: (scaleFactor: Float) -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedTab by remember { mutableIntStateOf(0) } // 0: PDF, 1: JPEG / Images
 
     var selectedPageSize by remember { mutableStateOf(PdfPageSize.A4) }
     var selectedQuality by remember { mutableStateOf(PdfQuality.HIGH) }
+    var resizeScale by remember { mutableFloatStateOf(1.0f) }
+
+    val imageFiles = remember(pages) { pages.map { File(it.processedImagePath) } }
+    val estimatedPdfBytes = remember(selectedQuality, resizeScale, imageFiles) {
+        PdfManager.estimatePdfSize(imageFiles, resizeScale, selectedQuality.compressQuality)
+    }
+    val estimatedJpegBytes = remember(resizeScale, imageFiles) {
+        PdfManager.estimatePdfSize(imageFiles, resizeScale, 90)
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -866,7 +1006,96 @@ fun ExportShareBottomSheet(
                 )
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Dynamic File Size Indicator Card
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        if (selectedTab == 0) Icons.Default.PictureAsPdf else Icons.Default.PhotoLibrary,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = if (selectedTab == 0) "Estimated PDF File Size" else "Estimated Image(s) File Size",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = "~${PdfManager.formatFileSize(if (selectedTab == 0) estimatedPdfBytes else estimatedJpegBytes)} (${(resizeScale * 100).roundToInt()}% Resolution)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Resize Document / Resolution Section
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.resize_resolution),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "${(resizeScale * 100).roundToInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Preset Resolution Chips
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    1.0f to "100% (Original)",
+                    0.75f to "75% (Large)",
+                    0.50f to "50% (Medium)",
+                    0.25f to "25% (Small)"
+                ).forEach { (scale, label) ->
+                    val isSelected = kotlin.math.abs(resizeScale - scale) < 0.04f
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { resizeScale = scale },
+                        label = { Text(label, fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    )
+                }
+            }
+
+            Slider(
+                value = resizeScale,
+                onValueChange = { resizeScale = it },
+                valueRange = 0.25f..1.0f,
+                steps = 14,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             if (selectedTab == 0) {
                 // PDF Options
@@ -875,7 +1104,7 @@ fun ExportShareBottomSheet(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(
@@ -898,14 +1127,14 @@ fun ExportShareBottomSheet(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "File Quality & Size",
+                    text = "Compression Quality",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold
                 )
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 PdfQuality.values().forEach { quality ->
                     Row(
@@ -923,10 +1152,10 @@ fun ExportShareBottomSheet(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
-                    onClick = { onSharePdf(selectedPageSize, selectedQuality) },
+                    onClick = { onSharePdf(selectedPageSize, selectedQuality, resizeScale) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(50.dp)
@@ -938,13 +1167,13 @@ fun ExportShareBottomSheet(
                 }
             } else {
                 // JPEG Options
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     // Option A: Share All Pages as JPEGs
                     OutlinedButton(
-                        onClick = onShareAllJpegs,
+                        onClick = { onShareAllJpegs(resizeScale) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(50.dp)
+                            .height(48.dp)
                             .testTag("share_all_jpegs_button")
                     ) {
                         Icon(Icons.Default.Collections, contentDescription = null)
@@ -954,10 +1183,10 @@ fun ExportShareBottomSheet(
 
                     // Option B: Share Current Page as JPEG
                     OutlinedButton(
-                        onClick = onShareCurrentJpeg,
+                        onClick = { onShareCurrentJpeg(resizeScale) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(50.dp)
+                            .height(48.dp)
                             .testTag("share_current_jpeg_button")
                     ) {
                         Icon(Icons.Default.Share, contentDescription = null)
@@ -967,10 +1196,10 @@ fun ExportShareBottomSheet(
 
                     // Option C: Save to Gallery
                     Button(
-                        onClick = onSaveJpegsToGallery,
+                        onClick = { onSaveJpegsToGallery(resizeScale) },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(50.dp)
+                            .height(48.dp)
                             .testTag("save_gallery_button")
                     ) {
                         Icon(Icons.Default.Download, contentDescription = null)
@@ -980,7 +1209,7 @@ fun ExportShareBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             Box(
                 modifier = Modifier.fillMaxWidth(),

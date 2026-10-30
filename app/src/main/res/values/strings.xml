@@ -50,4 +50,18 @@
     <string name="import_options_title">Import Document</string>
     <string name="import_from_files">Import PDF or Document Files</string>
     <string name="import_from_gallery">Import Photos from Gallery</string>
+    <string name="rotate_crop">Rotate 90°</string>
+    <string name="zoom_in">Zoom In</string>
+    <string name="zoom_reset">Reset Zoom</string>
+    <string name="list_view">List View</string>
+    <string name="grid_view">Grid View</string>
+    <string name="select_all">Select All</string>
+    <string name="deselect_all">Deselect All</string>
+    <string name="share_together">Share Together</string>
+    <string name="delete_selected">Delete Selected</string>
+    <string name="n_selected">%1$d selected</string>
+    <string name="resize_resolution">Resize &amp; Resolution</string>
+    <string name="file_size_estimated">Estimated File Size</string>
+    <string name="share_combined_pdf">Share as Combined PDF</string>
+    <string name="share_selected_images">Share All Pages as Images</string>
 </resources>

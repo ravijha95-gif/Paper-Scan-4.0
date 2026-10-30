@@ -45,6 +45,15 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -134,6 +143,11 @@ fun EnhanceScreen(
     var sharpness by remember { mutableFloatStateOf(0.5f) }         // 0.0 .. 2.0
     var fade by remember { mutableFloatStateOf(0f) }                // 0.0 .. 1.0
     var vignette by remember { mutableFloatStateOf(0f) }            // -1.0 .. 1.0
+
+    // Zoom on result preview state
+    var zoomScale by remember { mutableFloatStateOf(1f) }
+    var zoomOffset by remember { mutableStateOf(Offset.Zero) }
+    var showFullScreenZoom by remember { mutableStateOf(false) }
 
     var selectedCategory by remember { mutableStateOf(AdjustCategory.QUICK) }
 
@@ -251,6 +265,17 @@ fun EnhanceScreen(
 
                 Spacer(modifier = Modifier.width(4.dp))
 
+                // Zoom Button in TopAppBar
+                IconButton(
+                    onClick = { showFullScreenZoom = true },
+                    modifier = Modifier.testTag("enhance_zoom_button")
+                ) {
+                    Icon(
+                        Icons.Default.ZoomIn,
+                        contentDescription = stringResource(R.string.zoom_in)
+                    )
+                }
+
                 // Rotate Button
                 IconButton(
                     onClick = { rotationDegrees = (rotationDegrees + 90) % 360 },
@@ -292,25 +317,66 @@ fun EnhanceScreen(
                 color = Color.White,
                 modifier = Modifier
                     .fillMaxSize()
+                    .clip(RoundedCornerShape(12.dp))
                     .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val newScale = (zoomScale * zoom).coerceIn(1f, 5f)
+                            val maxOffsetX = 400f * (newScale - 1f)
+                            val maxOffsetY = 500f * (newScale - 1f)
+                            val newOffset = if (newScale > 1.05f) {
+                                Offset(
+                                    (zoomOffset.x + pan.x).coerceIn(-maxOffsetX, maxOffsetX),
+                                    (zoomOffset.y + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
+                                )
+                            } else {
+                                Offset.Zero
+                            }
+                            zoomScale = newScale
+                            zoomOffset = newOffset
+                        }
+                    }
+                    .pointerInput(zoomScale) {
                         detectTapGestures(
+                            onDoubleTap = {
+                                if (zoomScale > 1.1f) {
+                                    zoomScale = 1f
+                                    zoomOffset = Offset.Zero
+                                } else {
+                                    zoomScale = 2.5f
+                                }
+                            },
                             onPress = {
-                                isComparingBefore = true
-                                tryAwaitRelease()
-                                isComparingBefore = false
+                                if (zoomScale <= 1.05f) {
+                                    isComparingBefore = true
+                                    tryAwaitRelease()
+                                    isComparingBefore = false
+                                }
                             }
                         )
                     }
             ) {
                 val displayBitmap = if (isComparingBefore) croppedBitmap else previewBitmap
-                Image(
-                    bitmap = displayBitmap.asImageBitmap(),
-                    contentDescription = "Document Scan Preview",
-                    contentScale = ContentScale.Fit,
+                Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(8.dp)
-                )
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        bitmap = displayBitmap.asImageBitmap(),
+                        contentDescription = "Document Scan Preview",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(8.dp)
+                            .graphicsLayer(
+                                scaleX = zoomScale,
+                                scaleY = zoomScale,
+                                translationX = zoomOffset.x,
+                                translationY = zoomOffset.y
+                            )
+                    )
+                }
             }
 
             // Floating indicator tag
@@ -322,12 +388,59 @@ fun EnhanceScreen(
                     .padding(14.dp)
             ) {
                 Text(
-                    text = if (isComparingBefore) "HOLDING: ORIGINAL" else "TAP & HOLD TO COMPARE",
+                    text = if (isComparingBefore) "HOLDING: ORIGINAL" else if (zoomScale > 1.05f) "PINCH & PAN ACTIVE" else "TAP & HOLD TO COMPARE",
                     color = Color.White,
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
+            }
+
+            // Floating Zoom Controls overlay on Preview
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (zoomScale > 1.05f) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = Color.Black.copy(alpha = 0.75f),
+                        modifier = Modifier.clickable {
+                            zoomScale = 1f
+                            zoomOffset = Offset.Zero
+                        }
+                    ) {
+                        Text(
+                            text = "${(zoomScale * 100).roundToInt()}% • Reset",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shadowElevation = 2.dp,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clickable { showFullScreenZoom = true }
+                        .testTag("fullscreen_zoom_button")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Fullscreen,
+                            contentDescription = "Full Screen Zoom",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
             }
         }
 
@@ -578,6 +691,14 @@ fun EnhanceScreen(
                 }
             }
         }
+
+        if (showFullScreenZoom) {
+            val displayBitmap = if (isComparingBefore) croppedBitmap else previewBitmap
+            FullScreenZoomDialog(
+                bitmap = displayBitmap,
+                onDismiss = { showFullScreenZoom = false }
+            )
+        }
     }
 }
 
@@ -655,6 +776,134 @@ private fun AdjustmentSliderRow(
             }
         } else {
             Spacer(modifier = Modifier.width(32.dp))
+        }
+    }
+}
+
+/**
+ * Fullscreen precision zoom dialog allowing pinch-to-zoom up to 8x and fluid pan inspection.
+ */
+@Composable
+fun FullScreenZoomDialog(
+    bitmap: Bitmap,
+    onDismiss: () -> Unit
+) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            scale = (scale * zoom).coerceIn(1f, 8f)
+                            val maxOffsetX = 600f * (scale - 1f)
+                            val maxOffsetY = 800f * (scale - 1f)
+                            offset = if (scale > 1.05f) {
+                                Offset(
+                                    (offset.x + pan.x).coerceIn(-maxOffsetX, maxOffsetX),
+                                    (offset.y + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
+                                )
+                            } else Offset.Zero
+                        }
+                    }
+                    .pointerInput(scale) {
+                        detectTapGestures(
+                            onDoubleTap = {
+                                if (scale > 1.1f) {
+                                    scale = 1f
+                                    offset = Offset.Zero
+                                } else {
+                                    scale = 3f
+                                }
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "Full zoom view",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale,
+                            translationX = offset.x,
+                            translationY = offset.y
+                        )
+                )
+            }
+
+            // Top controls: Scale indicator & Close
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+                    .align(Alignment.TopCenter),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color.Black.copy(alpha = 0.65f)
+                ) {
+                    Text(
+                        text = "Zoom: ${(scale * 100).roundToInt()}% (Double-tap or pinch)",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                }
+            }
+
+            // Bottom quick zoom controls (+ / - / Reset)
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+                    .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = {
+                    scale = (scale - 0.5f).coerceAtLeast(1f)
+                    if (scale <= 1.05f) offset = Offset.Zero
+                }) {
+                    Icon(Icons.Default.ZoomOut, contentDescription = "Zoom Out", tint = Color.White)
+                }
+
+                TextButton(onClick = {
+                    scale = 1f
+                    offset = Offset.Zero
+                }) {
+                    Text("100% Fit", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+
+                IconButton(onClick = {
+                    scale = (scale + 0.5f).coerceAtMost(8f)
+                }) {
+                    Icon(Icons.Default.ZoomIn, contentDescription = "Zoom In", tint = Color.White)
+                }
+            }
         }
     }
 }

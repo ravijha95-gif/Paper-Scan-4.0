@@ -496,20 +496,78 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * Delete multiple selected document threads at once.
+     */
+    fun deleteMultipleDocuments(documentIds: List<Long>) {
+        if (documentIds.isEmpty()) return
+        viewModelScope.launch {
+            documentIds.forEach { id ->
+                dao.deleteDocumentById(id)
+            }
+            if (_activeDocumentId.value in documentIds) {
+                _activeDocumentId.value = null
+                _currentScreen.value = AppScreen.Home
+            }
+            _statusMessage.value = "Deleted ${documentIds.size} document(s)"
+        }
+    }
+
+    /**
      * Generates PDF and returns the File for sharing or local saving.
      */
     suspend fun exportPdf(
         document: DocumentEntity,
         pages: List<DocumentPageEntity>,
         pageSize: PdfPageSize,
-        quality: PdfQuality
+        quality: PdfQuality,
+        customScaleFactor: Float = 1.0f
     ): File? = withContext(Dispatchers.IO) {
         try {
             val context = getApplication<Application>()
             val paths = pages.sortedBy { it.pageIndex }.map { it.processedImagePath }
-            PdfManager.generatePdf(context, paths, document.title, pageSize, quality)
+            PdfManager.generatePdf(context, paths, document.title, pageSize, quality, customScaleFactor)
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * Compiles multiple document threads together into a single combined PDF.
+     */
+    suspend fun exportMultipleDocumentsPdf(
+        documentIds: List<Long>,
+        pageSize: PdfPageSize = PdfPageSize.A4,
+        quality: PdfQuality = PdfQuality.HIGH,
+        customScaleFactor: Float = 1.0f
+    ): File? = withContext(Dispatchers.IO) {
+        try {
+            val context = getApplication<Application>()
+            val allPaths = mutableListOf<String>()
+            for (id in documentIds) {
+                val pages = dao.getPagesForDocument(id).sortedBy { it.pageIndex }
+                allPaths.addAll(pages.map { it.processedImagePath })
+            }
+            if (allPaths.isEmpty()) return@withContext null
+            val timeFormat = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault())
+            val title = "Batch_Scans_${timeFormat.format(Date())}"
+            PdfManager.generatePdf(context, allPaths, title, pageSize, quality, customScaleFactor)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Collects all page image files across multiple selected document threads.
+     */
+    suspend fun getAllImageFilesForDocuments(documentIds: List<Long>): List<File> = withContext(Dispatchers.IO) {
+        val files = mutableListOf<File>()
+        for (id in documentIds) {
+            val pages = dao.getPagesForDocument(id).sortedBy { it.pageIndex }
+            for (page in pages) {
+                val f = File(page.processedImagePath)
+                if (f.exists()) files.add(f)
+            }
+        }
+        files
     }
 }
