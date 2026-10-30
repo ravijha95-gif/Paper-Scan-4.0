@@ -18,8 +18,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.CameraState
 import androidx.camera.core.FocusMeteringAction
-import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
@@ -69,15 +69,18 @@ import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FlashAuto
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -270,18 +273,35 @@ fun CameraScanScreen(
         }
     }
 
-    BackHandler {
-        onClose()
-    }
-
     var isBatchMode by remember { mutableStateOf(initialBatch) }
     var flashMode by remember { mutableIntStateOf(ImageCapture.FLASH_MODE_AUTO) }
     var previewUseCase by remember { mutableStateOf<Preview?>(null) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
-    var imageAnalysis by remember { mutableStateOf<ImageAnalysis?>(null) }
     var camera by remember { mutableStateOf<Camera?>(null) }
+    var cameraProviderInstance by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+    var cameraErrorMessage by remember { mutableStateOf<String?>(null) }
     var previewViewRef by remember { mutableStateOf<PreviewView?>(null) }
     var isCapturing by remember { mutableStateOf(false) }
+
+    val safeCloseCamera = {
+        try {
+            cameraProviderInstance?.unbindAll()
+        } catch (_: Exception) {}
+        onClose()
+    }
+
+    BackHandler {
+        safeCloseCamera()
+    }
+
+    // Cleanly unbind camera use cases when leaving this screen
+    DisposableEffect(lifecycleOwner) {
+        onDispose {
+            try {
+                cameraProviderInstance?.unbindAll()
+            } catch (_: Exception) {}
+        }
+    }
 
     // Track the exact camera stream aspect ratio (3:4 in portrait, 4:3 in landscape by default)
     var cameraAspectRatio by remember(isLandscape) {
@@ -291,7 +311,7 @@ fun CameraScanScreen(
     var currentZoomRatio by remember { mutableFloatStateOf(1.0f) }
 
     // Keep targetRotation synchronized with the device's display orientation
-    DisposableEffect(context, previewViewRef, previewUseCase, imageCapture, imageAnalysis) {
+    DisposableEffect(context, previewViewRef, previewUseCase, imageCapture) {
         val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
         val displayListener = object : DisplayManager.DisplayListener {
             override fun onDisplayAdded(displayId: Int) = Unit
@@ -302,7 +322,6 @@ fun CameraScanScreen(
                     val rot = viewDisplay.rotation
                     previewUseCase?.targetRotation = rot
                     imageCapture?.targetRotation = rot
-                    imageAnalysis?.targetRotation = rot
                 }
             }
         }
@@ -348,7 +367,7 @@ fun CameraScanScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
-                onClick = onClose,
+                onClick = safeCloseCamera,
                 modifier = Modifier
                     .background(Color.White.copy(alpha = 0.14f), CircleShape)
                     .testTag("close_camera_button")
@@ -439,8 +458,8 @@ fun CameraScanScreen(
                     AndroidView(
                         factory = { ctx ->
                             val previewView = PreviewView(ctx).apply {
-                                // COMPATIBLE + FIT_CENTER inside the exact-aspect container prevents hidden cropping
-                                implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                                // PERFORMANCE (SurfaceView) prevents surface destruction race conditions and TextureView tears
+                                implementationMode = PreviewView.ImplementationMode.PERFORMANCE
                                 scaleType = PreviewView.ScaleType.FIT_CENTER
                             }
                             previewViewRef = previewView
@@ -450,6 +469,7 @@ fun CameraScanScreen(
                                 cameraProviderFuture.addListener({
                                     try {
                                         val cameraProvider = cameraProviderFuture.get()
+                                        cameraProviderInstance = cameraProvider
                                         val targetRotation = previewView.display?.rotation ?: Surface.ROTATION_0
 
                                         val preview = Preview.Builder()
@@ -468,21 +488,14 @@ fun CameraScanScreen(
                                             .setFlashMode(flashMode)
                                             .build()
 
-                                        val analysis = ImageAnalysis.Builder()
-                                            .setResolutionSelector(CameraResolutionConfig.buildImageAnalysisResolutionSelector())
-                                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                            .setTargetRotation(targetRotation)
-                                            .build()
-
                                         previewUseCase = preview
                                         imageCapture = capture
-                                        imageAnalysis = analysis
 
                                         // Prioritize rear camera's main sensor
                                         val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
                                         cameraProvider.unbindAll()
 
-                                        // Build shared ViewPort so Preview, ImageCapture, and ImageAnalysis share identical framing
+                                        // Build shared ViewPort so Preview and ImageCapture share identical framing
                                         val viewW = previewView.width.coerceAtLeast(300)
                                         val viewH = previewView.height.coerceAtLeast(400)
                                         val sharedViewPort = previewView.viewPort ?: ViewPort.Builder(
@@ -495,7 +508,6 @@ fun CameraScanScreen(
                                                 .setViewPort(sharedViewPort)
                                                 .addUseCase(preview)
                                                 .addUseCase(capture)
-                                                .addUseCase(analysis)
                                                 .build()
                                             cameraProvider.bindToLifecycle(
                                                 lifecycleOwner,
@@ -503,20 +515,39 @@ fun CameraScanScreen(
                                                 group
                                             )
                                         } catch (_: Exception) {
-                                            // Fallback to Preview + ImageCapture in UseCaseGroup to guarantee MAXIMUM still resolution
-                                            val group = UseCaseGroup.Builder()
-                                                .setViewPort(sharedViewPort)
-                                                .addUseCase(preview)
-                                                .addUseCase(capture)
-                                                .build()
+                                            // Fallback direct binding without viewport
                                             cameraProvider.bindToLifecycle(
                                                 lifecycleOwner,
                                                 cameraSelector,
-                                                group
+                                                preview,
+                                                capture
                                             )
                                         }
 
                                         camera = boundCamera
+
+                                        // Observe camera state to gracefully catch any device/policy errors (e.g. ERROR_CAMERA_DISABLED)
+                                        boundCamera.cameraInfo.cameraState.observe(lifecycleOwner) { state ->
+                                            when (state.type) {
+                                                CameraState.Type.OPEN -> {
+                                                    cameraErrorMessage = null
+                                                }
+                                                CameraState.Type.CLOSED -> {
+                                                    state.error?.let { err ->
+                                                        val errorMsg = when (err.code) {
+                                                            CameraState.ERROR_CAMERA_DISABLED -> "Camera is disabled by system policy or in use."
+                                                            CameraState.ERROR_CAMERA_IN_USE -> "Camera is currently being used by another application."
+                                                            CameraState.ERROR_MAX_CAMERAS_IN_USE -> "Maximum number of cameras are in use."
+                                                            CameraState.ERROR_OTHER_RECOVERABLE_ERROR -> "Recoverable camera error occurred."
+                                                            CameraState.ERROR_STREAM_CONFIG -> "Camera configuration error."
+                                                            else -> "Camera error occurred (code ${err.code})."
+                                                        }
+                                                        cameraErrorMessage = errorMsg
+                                                    }
+                                                }
+                                                else -> Unit
+                                            }
+                                        }
 
                                         // Ensure consistent 1.0x zoom state across Preview and ImageCapture
                                         boundCamera.cameraControl.setZoomRatio(currentZoomRatio)
@@ -555,8 +586,8 @@ fun CameraScanScreen(
                                                 min(fullRes.width, fullRes.height)
                                             )
                                         }
-                                    } catch (_: Exception) {
-                                        // Camera bind error fallback
+                                    } catch (e: Exception) {
+                                        cameraErrorMessage = "Camera initialization failed: ${e.message}"
                                     }
                                 }, ContextCompat.getMainExecutor(ctx))
                             }
@@ -605,8 +636,12 @@ fun CameraScanScreen(
                             val rot = previewView.display?.rotation ?: Surface.ROTATION_0
                             previewUseCase?.targetRotation = rot
                             imageCapture?.targetRotation = rot
-                            imageAnalysis?.targetRotation = rot
                             imageCapture?.flashMode = flashMode
+                        },
+                        onRelease = {
+                            try {
+                                cameraProviderInstance?.unbindAll()
+                            } catch (_: Exception) {}
                         },
                         modifier = Modifier.fillMaxSize()
                     )
@@ -636,6 +671,71 @@ fun CameraScanScreen(
                                     fontSize = 11.sp,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                 )
+                            }
+                        }
+                    }
+
+                    // Camera Error Overlay with Retry & Sample Document fallback
+                    cameraErrorMessage?.let { errorText ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp)
+                                .align(Alignment.Center),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.95f),
+                            shadowElevation = 8.dp
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Camera Unavailable",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = errorText,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    FilledTonalButton(
+                                        onClick = {
+                                            cameraErrorMessage = null
+                                            previewViewRef?.post {
+                                                try {
+                                                    cameraProviderInstance?.unbindAll()
+                                                } catch (_: Exception) {}
+                                            }
+                                        }
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Retry")
+                                    }
+                                    Button(
+                                        onClick = {
+                                            viewModel.importSampleDocument(targetDocumentId)
+                                        }
+                                    ) {
+                                        Text("Use Sample")
+                                    }
+                                }
                             }
                         }
                     }
@@ -806,6 +906,11 @@ fun CameraScanScreen(
                                     object : ImageCapture.OnImageSavedCallback {
                                         override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                                             isCapturing = false
+                                            if (!isBatchMode) {
+                                                try {
+                                                    cameraProviderInstance?.unbindAll()
+                                                } catch (_: Exception) {}
+                                            }
                                             viewModel.onPhotoCaptured(
                                                 path = photoFile.absolutePath,
                                                 isBatch = isBatchMode,
