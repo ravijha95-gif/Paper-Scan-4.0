@@ -29,10 +29,13 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -230,11 +233,18 @@ fun DocumentDetailScreen(
                     Button(
                         onClick = { showExportSheet = true },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                         modifier = Modifier.testTag("detail_share_button")
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Export / Share")
+                        Text(
+                            text = "Export / Share",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
 
                     // More Options Dropdown
@@ -424,12 +434,14 @@ fun DocumentDetailScreen(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     shape = RoundedCornerShape(24.dp),
                     modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                         .align(Alignment.CenterHorizontally)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Inspect Zoom
@@ -462,6 +474,18 @@ fun DocumentDetailScreen(
                             modifier = Modifier.testTag("action_crop_page")
                         ) {
                             Icon(Icons.Default.Crop, contentDescription = "Adjust crop")
+                        }
+
+                        // Export & Share quick action
+                        IconButton(
+                            onClick = { showExportSheet = true },
+                            modifier = Modifier.testTag("action_quick_export")
+                        ) {
+                            Icon(
+                                Icons.Default.Share,
+                                contentDescription = "Export & Share",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
 
                         // Move page Left
@@ -970,22 +994,59 @@ fun ExportShareBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 12.dp)
+                .padding(horizontal = 20.dp, vertical = 8.dp)
                 .windowInsetsPadding(WindowInsets.navigationBars)
         ) {
-            Text(
-                text = stringResource(R.string.export_options_title),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = "${document.title} (${pages.size} ${if (pages.size == 1) "page" else "pages"})",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // Header Row with Title + Quick Share Button so Export/Share is immediately accessible
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.export_options_title),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${document.title} (${pages.size} ${if (pages.size == 1) "page" else "pages"})",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Button(
+                    onClick = {
+                        if (selectedTab == 0) {
+                            onSharePdf(selectedPageSize, selectedQuality, resizeScale)
+                        } else {
+                            onShareAllJpegs(resizeScale)
+                        }
+                    },
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier.testTag("header_quick_share_button")
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (selectedTab == 0) "Share PDF" else "Share JPEGs",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Tabs: PDF vs JPEG
             TabRow(
@@ -995,181 +1056,240 @@ fun ExportShareBottomSheet(
                 Tab(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    text = { Text("PDF Document", fontWeight = FontWeight.SemiBold) },
-                    icon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(20.dp)) }
+                    text = { Text("PDF Document", fontWeight = FontWeight.SemiBold, maxLines = 1) },
+                    icon = { Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp)) }
                 )
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    text = { Text("JPEG Images", fontWeight = FontWeight.SemiBold) },
-                    icon = { Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(20.dp)) }
+                    text = { Text("JPEG Images", fontWeight = FontWeight.SemiBold, maxLines = 1) },
+                    icon = { Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp)) }
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Dynamic File Size Indicator Card
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                modifier = Modifier.fillMaxWidth()
+            // Scrollable configuration body so options never push the action button off-screen
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
             ) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Dynamic File Size Indicator Card
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (selectedTab == 0) Icons.Default.PictureAsPdf else Icons.Default.PhotoLibrary,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = if (selectedTab == 0) "Estimated PDF File Size" else "Estimated Image(s) File Size",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "~${PdfManager.formatFileSize(if (selectedTab == 0) estimatedPdfBytes else estimatedJpegBytes)} (${(resizeScale * 100).roundToInt()}% Resolution)",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Resize Document / Resolution Section
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        if (selectedTab == 0) Icons.Default.PictureAsPdf else Icons.Default.PhotoLibrary,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
+                    Text(
+                        text = stringResource(R.string.resize_resolution),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = if (selectedTab == 0) "Estimated PDF File Size" else "Estimated Image(s) File Size",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = "~${PdfManager.formatFileSize(if (selectedTab == 0) estimatedPdfBytes else estimatedJpegBytes)} (${(resizeScale * 100).roundToInt()}% Resolution)",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                    Text(
+                        text = "${(resizeScale * 100).roundToInt()}%",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Equal-width Preset Resolution Cards (prevents vertical text wrapping on narrow screens)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        Triple(1.0f, "100%", "Original"),
+                        Triple(0.75f, "75%", "Large"),
+                        Triple(0.50f, "50%", "Medium"),
+                        Triple(0.25f, "25%", "Small")
+                    ).forEach { (scale, percentText, subLabel) ->
+                        val isSelected = kotlin.math.abs(resizeScale - scale) < 0.04f
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(
+                                    width = 1.dp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .clickable { resizeScale = scale }
+                                .testTag("resolution_preset_${(scale * 100).roundToInt()}")
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = percentText,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                Text(
+                                    text = subLabel,
+                                    fontSize = 10.sp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Resize Document / Resolution Section
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(R.string.resize_resolution),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
+                Slider(
+                    value = resizeScale,
+                    onValueChange = { resizeScale = it },
+                    valueRange = 0.25f..1.0f,
+                    steps = 14,
+                    modifier = Modifier.fillMaxWidth()
                 )
-                Text(
-                    text = "${(resizeScale * 100).roundToInt()}%",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            Spacer(modifier = Modifier.height(6.dp))
 
-            // Preset Resolution Chips
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    1.0f to "100% (Original)",
-                    0.75f to "75% (Large)",
-                    0.50f to "50% (Medium)",
-                    0.25f to "25% (Small)"
-                ).forEach { (scale, label) ->
-                    val isSelected = kotlin.math.abs(resizeScale - scale) < 0.04f
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { resizeScale = scale },
-                        label = { Text(label, fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primary,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    )
-                }
-            }
+                Spacer(modifier = Modifier.height(6.dp))
 
-            Slider(
-                value = resizeScale,
-                onValueChange = { resizeScale = it },
-                valueRange = 0.25f..1.0f,
-                steps = 14,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            if (selectedTab == 0) {
-                // PDF Options
-                Text(
-                    text = "Page Format",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
-                        selected = selectedPageSize == PdfPageSize.A4,
-                        onClick = { selectedPageSize = PdfPageSize.A4 }
-                    )
+                if (selectedTab == 0) {
+                    // PDF Options
                     Text(
-                        text = "Standard A4 (Print-Grade 300 DPI)",
-                        modifier = Modifier.clickable { selectedPageSize = PdfPageSize.A4 }
+                        text = "Page Format",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
                     )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
-                        selected = selectedPageSize == PdfPageSize.AUTO_FIT,
-                        onClick = { selectedPageSize = PdfPageSize.AUTO_FIT }
-                    )
-                    Text(
-                        text = "Auto-fit (Preserve exact scan dimensions)",
-                        modifier = Modifier.clickable { selectedPageSize = PdfPageSize.AUTO_FIT }
-                    )
-                }
+                    Spacer(modifier = Modifier.height(2.dp))
 
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Text(
-                    text = "Compression Quality",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-
-                PdfQuality.values().forEach { quality ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(vertical = 1.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedPageSize = PdfPageSize.A4 }
                     ) {
                         RadioButton(
-                            selected = selectedQuality == quality,
-                            onClick = { selectedQuality = quality }
+                            selected = selectedPageSize == PdfPageSize.A4,
+                            onClick = { selectedPageSize = PdfPageSize.A4 }
                         )
                         Text(
-                            text = quality.label,
-                            modifier = Modifier.clickable { selectedQuality = quality }
+                            text = "Standard A4 (Print-Grade 300 DPI)",
+                            style = MaterialTheme.typography.bodyMedium
                         )
                     }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedPageSize = PdfPageSize.AUTO_FIT }
+                    ) {
+                        RadioButton(
+                            selected = selectedPageSize == PdfPageSize.AUTO_FIT,
+                            onClick = { selectedPageSize = PdfPageSize.AUTO_FIT }
+                        )
+                        Text(
+                            text = "Auto-fit (Preserve exact scan dimensions)",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = "Compression Quality",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    PdfQuality.values().forEach { quality ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedQuality = quality }
+                        ) {
+                            RadioButton(
+                                selected = selectedQuality == quality,
+                                onClick = { selectedQuality = quality }
+                            )
+                            Text(
+                                text = quality.label,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
                 }
+            }
 
-                Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
+            // Pinned / Sticky Action Footer: Always visible at the bottom of the Export & Share sheet
+            if (selectedTab == 0) {
                 Button(
                     onClick = { onSharePdf(selectedPageSize, selectedQuality, resizeScale) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
+                        .height(52.dp)
                         .testTag("confirm_export_pdf_button")
                 ) {
                     Icon(Icons.Default.Share, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.share_pdf))
+                    Text(
+                        text = "Export & ${stringResource(R.string.share_pdf)}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             } else {
-                // JPEG Options
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // JPEG Options pinned cleanly
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Option A: Share All Pages as JPEGs
-                    OutlinedButton(
+                    Button(
                         onClick = { onShareAllJpegs(resizeScale) },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1178,38 +1298,57 @@ fun ExportShareBottomSheet(
                     ) {
                         Icon(Icons.Default.Collections, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.share_all_jpegs))
+                        Text(stringResource(R.string.share_all_jpegs), fontWeight = FontWeight.Bold)
                     }
 
-                    // Option B: Share Current Page as JPEG
-                    OutlinedButton(
-                        onClick = { onShareCurrentJpeg(resizeScale) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("share_current_jpeg_button")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.share_current_jpeg))
-                    }
+                        // Option B: Share Current Page as JPEG
+                        OutlinedButton(
+                            onClick = { onShareCurrentJpeg(resizeScale) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("share_current_jpeg_button")
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Current Page",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
 
-                    // Option C: Save to Gallery
-                    Button(
-                        onClick = { onSaveJpegsToGallery(resizeScale) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("save_gallery_button")
-                    ) {
-                        Icon(Icons.Default.Download, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.save_to_gallery))
+                        // Option C: Save to Gallery
+                        OutlinedButton(
+                            onClick = { onSaveJpegsToGallery(resizeScale) },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("save_gallery_button")
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Save to Gallery",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Box(
                 modifier = Modifier.fillMaxWidth(),
@@ -1229,7 +1368,7 @@ fun ExportShareBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(6.dp))
         }
     }
 }

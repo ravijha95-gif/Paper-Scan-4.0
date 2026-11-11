@@ -168,9 +168,11 @@ fun HomeScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            text = "${selectedDocIds.size} ${stringResource(R.string.n_selected)}",
+                            text = stringResource(R.string.n_selected, selectedDocIds.size),
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     },
                     navigationIcon = {
@@ -200,17 +202,30 @@ fun HomeScreen(
                             Icon(Icons.Default.SelectAll, contentDescription = stringResource(R.string.select_all))
                         }
 
-                        // Share Together
-                        IconButton(
+                        // Prominent Share / Export Together Button
+                        Button(
                             onClick = {
                                 if (selectedDocIds.isNotEmpty()) {
                                     showShareTogetherDialog = true
                                 }
                             },
                             enabled = selectedDocIds.isNotEmpty(),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             modifier = Modifier.testTag("share_together_action_button")
                         ) {
-                            Icon(Icons.Default.Share, contentDescription = stringResource(R.string.share_together))
+                            Icon(
+                                Icons.Default.Share,
+                                contentDescription = stringResource(R.string.share_together),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Export / Share",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
 
                         // Delete Selected
@@ -378,6 +393,51 @@ fun HomeScreen(
                                 text = stringResource(R.string.scan_new_document),
                                 fontWeight = FontWeight.SemiBold
                             )
+                        }
+                    }
+                }
+            }
+        },
+        bottomBar = {
+            if (isSelectionMode && selectedDocIds.isNotEmpty()) {
+                Surface(
+                    tonalElevation = 6.dp,
+                    shadowElevation = 8.dp,
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = { showShareTogetherDialog = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp)
+                                .testTag("bottom_share_together_button")
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Export & Share (${selectedDocIds.size})",
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = { showBatchDeleteDialog = true },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.height(50.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Delete", fontWeight = FontWeight.SemiBold, maxLines = 1)
                         }
                     }
                 }

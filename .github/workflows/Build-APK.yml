@@ -5,6 +5,11 @@ on:
   push:
     branches:
       - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
 
 permissions:
   contents: read
@@ -20,6 +25,35 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Locate and prepare Gradle project root
+        run: |
+          echo "=== Inspecting workspace structure ==="
+          pwd
+          ls -la
+
+          # Verify if settings.gradle or settings.gradle.kts exists at root
+          if [ -f settings.gradle ] || [ -f settings.gradle.kts ] || [ -f settings.gradle.dcl ]; then
+            echo "Gradle build detected directly at repository root."
+          else
+            echo "No Gradle settings file found at root. Searching subdirectories..."
+            SETTINGS_PATH=$(find . -maxdepth 4 \( -name "settings.gradle.kts" -o -name "settings.gradle" -o -name "settings.gradle.dcl" \) -not -path "./.git/*" -not -path "./.github/*" | head -n 1)
+
+            if [ -n "$SETTINGS_PATH" ]; then
+              PROJECT_DIR=$(dirname "$SETTINGS_PATH")
+              echo "Found Gradle project in: $PROJECT_DIR"
+              echo "Synchronizing project files to repository root..."
+              cp -rn "$PROJECT_DIR"/. . 2>/dev/null || cp -r "$PROJECT_DIR"/* .
+              echo "Repository root contents after sync:"
+              ls -la
+            else
+              echo "::error::Could not find settings.gradle[.kts] anywhere in the repository!"
+              find . -maxdepth 3
+              exit 1
+            fi
+          fi
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -40,14 +74,22 @@ jobs:
           if [ ! -f .env.example ]; then
             printf '# No secrets required for this build.\n' > .env.example
           fi
+          if [ ! -f .env ]; then
+            touch .env
+          fi
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+
       - name: Generate debug keystore
         run: |
-          if [ ! -f debug.keystore ]; then
+          if [ -f debug.keystore.base64 ] && [ ! -f debug.keystore ]; then
+            echo "Decoding existing debug.keystore.base64..."
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ ! -f debug.keystore ]; then
+            echo "Generating new debug keystore..."
             keytool -genkeypair -v \
               -keystore debug.keystore \
               -storepass android \
@@ -66,6 +108,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PaperScan-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            **/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14

@@ -87,6 +87,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
@@ -232,14 +233,18 @@ fun EnhanceScreen(
             title = {
                 Column {
                     Text(
-                        text = "Enhance Document",
+                        text = "Enhance",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = if (isComparingBefore) "Previewing: Original (Before)" else "Previewing: Enhanced (After)",
+                        text = if (isComparingBefore) "Original (Before)" else "Enhanced (After)",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isComparingBefore) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                        color = if (isComparingBefore) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             },
@@ -253,17 +258,20 @@ fun EnhanceScreen(
                 OutlinedButton(
                     onClick = { isComparingBefore = !isComparingBefore },
                     colors = if (isComparingBefore) ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer) else ButtonDefaults.outlinedButtonColors(),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     modifier = Modifier
                         .height(36.dp)
                         .testTag("compare_before_after_button")
                 ) {
-                    Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(if (isComparingBefore) "Before" else "Compare", fontSize = 12.sp)
+                    Text(
+                        text = if (isComparingBefore) "Before" else "Compare",
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
-
-                Spacer(modifier = Modifier.width(4.dp))
 
                 // Zoom Button in TopAppBar
                 IconButton(
@@ -289,13 +297,20 @@ fun EnhanceScreen(
                     onClick = {
                         onDone(selectedFilter, lightness, contrast, rotationDegrees, currentManual)
                     },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                     modifier = Modifier
-                        .padding(end = 8.dp)
+                        .padding(end = 6.dp)
                         .testTag("save_enhancement_button")
                 ) {
-                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(stringResource(R.string.done))
+                    Text(
+                        text = stringResource(R.string.done),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(

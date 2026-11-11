@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -69,6 +70,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -198,27 +200,34 @@ fun PerspectiveCropScreen(
                             stringResource(R.string.perspective_crop_title),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Surface(
                             shape = RoundedCornerShape(10.dp),
                             color = if (isManuallyAdjusted) Color(0xFFE65100) else Color(0xFF00897B)
                         ) {
                             Text(
-                                text = if (isManuallyAdjusted) "Manual Lock" else "Auto (${((corners?.confidence ?: 0.9f) * 100).roundToInt()}%)",
+                                text = if (isManuallyAdjusted) "Manual" else "Auto ${((corners?.confidence ?: 0.9f) * 100).roundToInt()}%",
                                 color = Color.White,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                             )
                         }
                     }
                     Text(
                         stringResource(R.string.drag_edges_subtitle),
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color.White.copy(alpha = 0.75f)
+                        color = Color.White.copy(alpha = 0.75f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             },
@@ -244,13 +253,14 @@ fun PerspectiveCropScreen(
                         corners?.let { onProceed(it) }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
                     modifier = Modifier
                         .padding(end = 8.dp)
                         .testTag("crop_proceed_button")
                 ) {
-                    Text(stringResource(R.string.next), fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.next), fontWeight = FontWeight.Bold, maxLines = 1)
                     Spacer(modifier = Modifier.width(4.dp))
-                    Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                 }
             },
             colors = TopAppBarDefaults.topAppBarColors(
@@ -596,7 +606,7 @@ fun PerspectiveCropScreen(
             }
         }
 
-        // Bottom Controls: Auto Detect, Full Page, Reset
+        // Bottom Controls: Auto Detect, Full Page, Rotate 90°, Reset (Equal-width responsive buttons)
         Surface(
             color = Color(0xFF181F2A),
             modifier = Modifier
@@ -606,8 +616,8 @@ fun PerspectiveCropScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedButton(
@@ -618,11 +628,28 @@ fun PerspectiveCropScreen(
                             isManuallyAdjusted = false
                         }
                     },
-                    modifier = Modifier.testTag("auto_detect_corners_button")
+                    shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(54.dp)
+                        .testTag("auto_detect_corners_button")
                 ) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(stringResource(R.string.auto_detect))
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = stringResource(R.string.auto_detect),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 OutlinedButton(
@@ -632,22 +659,56 @@ fun PerspectiveCropScreen(
                             isManuallyAdjusted = true
                         }
                     },
-                    modifier = Modifier.testTag("full_page_corners_button")
+                    shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(54.dp)
+                        .testTag("full_page_corners_button")
                 ) {
-                    Icon(Icons.Default.CropFree, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(stringResource(R.string.full_image))
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.CropFree, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = stringResource(R.string.full_image),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 OutlinedButton(
                     onClick = {
                         rotateImageAndCorners90()
                     },
-                    modifier = Modifier.testTag("rotate_crop_bottom_button")
+                    shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(54.dp)
+                        .testTag("rotate_crop_bottom_button")
                 ) {
-                    Icon(Icons.Default.RotateRight, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(stringResource(R.string.rotate_crop))
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.RotateRight, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = stringResource(R.string.rotate_crop),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
 
                 OutlinedButton(
@@ -657,11 +718,28 @@ fun PerspectiveCropScreen(
                             isManuallyAdjusted = false
                         }
                     },
-                    modifier = Modifier.testTag("reset_corners_button")
+                    shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(54.dp)
+                        .testTag("reset_corners_button")
                 ) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Reset")
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Reset",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
